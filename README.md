@@ -1,2 +1,2 @@
 # HYDMove
-This is a logistics based project built with React + Vite and Django
+This is a logistics based project built with Next.js and Django
