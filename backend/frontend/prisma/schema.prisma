@@ -1,0 +1,297 @@
+// Prisma schema for DECCANGO City Logistics Operating System
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  BUSINESS
+  DRIVER
+  FLEET_OWNER
+  DISPATCHER
+  SUPPORT_AGENT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  DRIVER_ASSIGNED
+  DRIVER_ARRIVING
+  ARRIVED_AT_PICKUP
+  PICKED_UP
+  IN_TRANSIT
+  ARRIVING
+  DELIVERED
+  CANCELLED
+  FAILED
+  RETURNED
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  BUSY
+  OFFLINE
+  MAINTENANCE
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum AreaStatus {
+  ACTIVE
+  LIMITED
+  COMING_SOON
+}
+
+model User {
+  id            String       @id @default(uuid())
+  email         String?      @unique
+  phone         String       @unique
+  name          String
+  role          UserRole     @default(CUSTOMER)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  customer      Customer?
+  business      Business?
+  driver        Driver?
+  fleetOwner    FleetOwner?
+  auditLogs     AuditLog[]
+
+  @@index([phone])
+  @@index([role])
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  createdAt   DateTime @default(now())
+}
+
+model Business {
+  id             String    @id @default(uuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName    String
+  gstin          String?
+  billingAddress String
+  contactPerson  String
+  creditLimit    Decimal   @default(50000.00)
+  currentBalance Decimal   @default(0.00)
+  plan           String    @default("STARTER") // STARTER, BUSINESS, ENTERPRISE
+  orders         Order[]
+  apiKeys        APIKey[]
+  createdAt      DateTime  @default(now())
+}
+
+model FleetOwner {
+  id             String    @id @default(uuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName    String?
+  fleetSize      Int       @default(1)
+  vehicles       Vehicle[]
+  createdAt      DateTime  @default(now())
+}
+
+model Driver {
+  id             String          @id @default(uuid())
+  userId         String          @unique
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  licenseNumber  String          @unique
+  kycStatus      String          @default("VERIFIED") // PENDING, VERIFIED, REJECTED
+  rating         Decimal         @default(4.8)
+  totalTrips     Int             @default(0)
+  isAvailable    Boolean         @default(true)
+  currentLat     Float?
+  currentLng     Float?
+  vehicleId      String?         @unique
+  vehicle        Vehicle?        @relation(fields: [vehicleId], references: [id])
+  orders         Order[]
+  locations      DriverLocation[]
+  createdAt      DateTime        @default(now())
+}
+
+model Vehicle {
+  id             String        @id @default(uuid())
+  plateNumber    String        @unique
+  model          String
+  category       String        // bike, auto, erickshaw, tata_ace, 1ton, 2_5ton, refrigerated
+  status         VehicleStatus @default(AVAILABLE)
+  isElectric     Boolean       @default(false)
+  capacityKg     Int
+  fleetOwnerId   String?
+  fleetOwner     FleetOwner?   @relation(fields: [fleetOwnerId], references: [id])
+  driver         Driver?
+  orders         Order[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([category])
+  @@index([status])
+}
+
+model Order {
+  id              String        @id @default(uuid())
+  trackingNumber  String        @unique
+  status          OrderStatus   @default(PENDING)
+  customerId      String?
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  businessId      String?
+  business        Business?     @relation(fields: [businessId], references: [id])
+  driverId        String?
+  driver          Driver?       @relation(fields: [driverId], references: [id])
+  vehicleId       String?
+  vehicle         Vehicle?      @relation(fields: [vehicleId], references: [id])
+  
+  pickupAddress   String
+  pickupLat       Float
+  pickupLng       Float
+  dropAddress     String
+  dropLat         Float
+  dropLng         Float
+
+  packageType     String
+  weightKg        Float
+  deliveryType    String        @default("standard")
+  
+  baseFare        Decimal
+  distanceCharge  Decimal
+  finalFare       Decimal
+  isCod           Boolean       @default(false)
+  codAmount       Decimal       @default(0.00)
+
+  route           Route?
+  payment         Payment?
+  pod             ProofOfDelivery?
+  rating          Rating?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([trackingNumber])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Route {
+  id              String      @id @default(uuid())
+  orderId         String      @unique
+  order           Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  totalDistanceKm Float
+  estimatedMins   Int
+  optimized       Boolean     @default(false)
+  stops           Stop[]
+  createdAt       DateTime    @default(now())
+}
+
+model Stop {
+  id              String      @id @default(uuid())
+  routeId         String
+  route           Route       @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  sequence        Int
+  locationName    String
+  address         String
+  lat             Float
+  lng             Float
+  stopType        String      // pickup, drop
+  contactPerson   String?
+  contactPhone    String?
+  status          String      @default("pending")
+}
+
+model DriverLocation {
+  id          String    @id @default(uuid())
+  driverId    String
+  driver      Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  latitude    Float
+  longitude   Float
+  heading     Float?
+  speed       Float?
+  timestamp   DateTime  @default(now())
+
+  @@index([driverId, timestamp])
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  orderId         String        @unique
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount          Decimal
+  currency        String        @default("INR")
+  status          PaymentStatus @default(PENDING)
+  provider        String        @default("RAZORPAY")
+  gatewayTxnId    String?
+  createdAt       DateTime      @default(now())
+}
+
+model ProofOfDelivery {
+  id              String    @id @default(uuid())
+  orderId         String    @unique
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  photoUrl        String
+  signatureUrl    String
+  gpsCoordinates  String
+  recipientName   String
+  otpVerified     Boolean   @default(true)
+  deliveredAt     DateTime  @default(now())
+}
+
+model Rating {
+  id          String    @id @default(uuid())
+  orderId     String    @unique
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  score       Int       // 1 to 5
+  feedback    String?
+  createdAt   DateTime  @default(now())
+}
+
+model ServiceArea {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  zone        String     // West, Central, North, South, East
+  status      AreaStatus @default(ACTIVE)
+  hubType     String     @default("Commercial")
+  latitude    Float
+  longitude   Float
+  updatedAt   DateTime   @updatedAt
+}
+
+model APIKey {
+  id          String    @id @default(uuid())
+  businessId  String
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  keyHash     String    @unique
+  name        String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+}
+
+model AuditLog {
+  id          String    @id @default(uuid())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String
+  entityId    String
+  metadata    Json?
+  timestamp   DateTime  @default(now())
+}
